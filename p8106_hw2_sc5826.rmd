@@ -8,6 +8,8 @@ output: pdf_document
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(caret)
+library(earth)
+library(pdp)
 ```
 
 # Data Cleaning & Splitting into Train/Test
@@ -17,18 +19,11 @@ college = read_csv("College.csv") |>
 
 set.seed(1234)
 indexTrain = createDataPartition(y = college$outstate, p = 0.8, list = FALSE)
-college_train = college[indexTrain, ]
-college_test = college[-indexTrain, ]
+college_train = college[indexTrain, ] 
+college_test = college[-indexTrain, ] 
 ```
 
 # A - Smoothing Spline
-
-Fit smoothing spline models to predict out-of-state tuition (Outstate) using Top10perc
-as the only predictor, across a range of degrees of freedom. Plot the fitted curve for each
-degree of freedom. Describe the patterns you observe as the degrees of freedom change.
-Choose an appropriate degree of freedom for the model and plot this optimal fit. State the
-criteria you used to select the degree of freedom.
-
 
 ```{r}
 set.seed(1234)
@@ -69,4 +64,73 @@ ggplot(college_train, aes(x = top10perc, y = outstate)) +
 
 Based on the above criterion, the optimal degrees of freedom chosen for the smoothing spline model was ~`r round(optimal_df, 2)`.
 
+# B - MARS
 
+Train a multivariate adaptive regression spline (MARS) model to predict the response
+variable. Report the regression function. Present the partial dependence plot of an arbitrary
+predictor in your model. Report the test error.
+
+```{r}
+# matrix of predictors 
+x = model.matrix(outstate ~ . - college, college_train)[, -1]
+# vector of response
+y = college_train$outstate
+
+mars_grid = expand.grid(degree = 1:3, nprune = 2:30)
+
+set.seed(1234)
+
+ctrl1 = trainControl(method = "cv", 
+                     number = 10)
+
+mars_model = train(x, y,
+                   method = "earth",
+                   tuneGrid = mars_grid,
+                   trControl = ctrl1)
+
+ggplot(mars_model)
+
+mars_model$bestTune
+```
+
+Regression Function:
+```{r}
+summary(mars_model$finalModel)
+```
+
+Final Regression Function: 
+
+$$
+\begin{aligned}
+\widehat{Outstate} &= 9221.1968 \\
+&+ 0.4164*\text{h(apps-2306)} \\
+&- 2.1852*\text{h(1379-f.undergrad)} \\ 
+&- 0.4373*\text{h(f.undergrad-1379)} \\ 
+&- 1.9481*\text{h(4250-room.board)} \\ 
+&+ 51.9742*\text{h(perc.alumni-14)} \\ 
+&+ 0.7316*\text{h(expend-5391)} \\ 
+&- 0.8081*\text{h(expend-15494)} \\
+\end{aligned}
+$$
+
+Partial Dependence Plot: 
+```{r}
+pdp_plot_1 = pdp::partial(mars_model, pred.var = c("f_undergrad"), 
+                          grid.resolution = 10) |> 
+  autoplot()
+
+pdp_plot_2 = pdp::partial(mars_model, pred.var = c("f_undergrad", "expend"), 
+                          grid.resolution = 10) |>
+  pdp::plotPartial(levelplot = FALSE, zlab = "yhat", drape = TRUE, screen = list(z = 20, x = -60))
+
+gridExtra::grid.arrange(pdp_plot_1, pdp_plot_2, ncol = 2)
+```
+
+Test Error: 
+```{r}
+predictions = predict(mars_model, newdata = college_test)
+
+test_rmse = RMSE(predictions, college_test$outstate)
+```
+
+The test error (RMSE) for the MARS model is `r round(test_rmse, 2)`. 
