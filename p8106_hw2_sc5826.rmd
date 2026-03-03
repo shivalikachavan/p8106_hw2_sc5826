@@ -1,0 +1,72 @@
+---
+title: "p8106_hw2_sc5826"
+author: "Shivalika Chavan"
+date: "2026-03-02"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(caret)
+```
+
+# Data Cleaning & Splitting into Train/Test
+```{r}
+college = read_csv("College.csv") |> 
+  janitor::clean_names()
+
+set.seed(1234)
+indexTrain = createDataPartition(y = college$outstate, p = 0.8, list = FALSE)
+college_train = college[indexTrain, ]
+college_test = college[-indexTrain, ]
+```
+
+# A - Smoothing Spline
+
+Fit smoothing spline models to predict out-of-state tuition (Outstate) using Top10perc
+as the only predictor, across a range of degrees of freedom. Plot the fitted curve for each
+degree of freedom. Describe the patterns you observe as the degrees of freedom change.
+Choose an appropriate degree of freedom for the model and plot this optimal fit. State the
+criteria you used to select the degree of freedom.
+
+
+```{r}
+set.seed(1234)
+top10perc_grid = seq(min(college_train$top10perc), max(college_train$top10perc), by = 0.25)
+
+spline_df_fits = 
+  tibble(df_val = seq(from = 2, to = 52, by = 5)) |> 
+  mutate(
+    spline_model = map(df_val, \(df) smooth.spline(x = college_train$top10perc, y = college_train$outstate, df = df)),
+    predictions = map(spline_model, \(model) predict(model, x = top10perc_grid) |> as.data.frame())
+  ) |> 
+  unnest(predictions) |> 
+  mutate(df_val = as.factor(df_val))
+
+ggplot(college_train, aes(x = top10perc, y = outstate)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = spline_df_fits, aes(x = x, y = y, color = df_val)) +
+  theme_bw()
+```
+
+As the degrees of freedom increase, the smoothing spline line deviates more from a straight line. At the lowest degrees of freedom (`df = 2`), the model has a heavier penalty for roughness, resulting in a nearly straight line. At the other end (`df = 52`), there is a lighter penalty for roughness, and the spline adjusts more to individual points. At higher degrees of freedom, there is a risk of overfitting the training data. 
+
+To select the optimal degrees of freedom, I used the default smoothing spline function, without specifying the degrees of freedome. This calculates and minimizes the default Generalized Cross-Validation (GCV) error to select the tuning parameter ($\lambda$).
+
+```{r}
+best_smoothing_spline = smooth.spline(x = college_train$top10perc, y = college_train$outstate)
+
+optimal_df = best_smoothing_spline$df
+
+optimal_pred_df = predict(best_smoothing_spline, x = top10perc_grid) |> 
+  as.data.frame()
+
+ggplot(college_train, aes(x = top10perc, y = outstate)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = optimal_pred_df, aes(x = x, y = y), color = rgb(.8, .1, .1, 1), linewidth = 1) +
+  theme_bw() 
+```
+
+Based on the above criterion, the optimal degrees of freedom chosen for the smoothing spline model was ~`r round(optimal_df, 2)`.
+
+
