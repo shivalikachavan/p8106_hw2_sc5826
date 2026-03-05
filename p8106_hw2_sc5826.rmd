@@ -10,6 +10,7 @@ library(tidyverse)
 library(caret)
 library(earth)
 library(pdp)
+library(mgcv)
 ```
 
 # Data Cleaning & Splitting into Train/Test
@@ -27,13 +28,18 @@ college_test = college[-indexTrain, ]
 
 ```{r}
 set.seed(1234)
-top10perc_grid = seq(min(college_train$top10perc), max(college_train$top10perc), by = 0.25)
+top10perc_grid = seq(min(college_train$top10perc), max(college_train$top10perc), 
+                     by = 0.25)
 
 spline_df_fits = 
   tibble(df_val = seq(from = 2, to = 52, by = 5)) |> 
   mutate(
-    spline_model = map(df_val, \(df) smooth.spline(x = college_train$top10perc, y = college_train$outstate, df = df)),
-    predictions = map(spline_model, \(model) predict(model, x = top10perc_grid) |> as.data.frame())
+    spline_model = map(df_val, \(df) smooth.spline(x = college_train$top10perc, 
+                                                   y = college_train$outstate, 
+                                                   df = df)),
+    predictions = map(spline_model, \(model) predict(model, 
+                                                     x = top10perc_grid) |> 
+                        as.data.frame())
   ) |> 
   unnest(predictions) |> 
   mutate(df_val = as.factor(df_val))
@@ -49,7 +55,8 @@ As the degrees of freedom increase, the smoothing spline line deviates more from
 To select the optimal degrees of freedom, I used the default smoothing spline function, without specifying the degrees of freedome. This calculates and minimizes the default Generalized Cross-Validation (GCV) error to select the tuning parameter ($\lambda$).
 
 ```{r}
-best_smoothing_spline = smooth.spline(x = college_train$top10perc, y = college_train$outstate)
+best_smoothing_spline = smooth.spline(x = college_train$top10perc, 
+                                      y = college_train$outstate)
 
 optimal_df = best_smoothing_spline$df
 
@@ -58,7 +65,8 @@ optimal_pred_df = predict(best_smoothing_spline, x = top10perc_grid) |>
 
 ggplot(college_train, aes(x = top10perc, y = outstate)) +
   geom_point(alpha = 0.5) +
-  geom_line(data = optimal_pred_df, aes(x = x, y = y), color = rgb(.8, .1, .1, 1), linewidth = 1) +
+  geom_line(data = optimal_pred_df, aes(x = x, y = y), 
+            color = rgb(.8, .1, .1, 1), linewidth = 1) +
   theme_bw() 
 ```
 
@@ -121,7 +129,8 @@ pdp_plot_1 = pdp::partial(mars_model, pred.var = c("f_undergrad"),
 
 pdp_plot_2 = pdp::partial(mars_model, pred.var = c("f_undergrad", "expend"), 
                           grid.resolution = 10) |>
-  pdp::plotPartial(levelplot = FALSE, zlab = "yhat", drape = TRUE, screen = list(z = 20, x = -60))
+  pdp::plotPartial(levelplot = FALSE, zlab = "yhat", drape = TRUE, 
+                   screen = list(z = 20, x = -60))
 
 gridExtra::grid.arrange(pdp_plot_1, pdp_plot_2, ncol = 2)
 ```
@@ -133,4 +142,68 @@ predictions = predict(mars_model, newdata = college_test)
 test_rmse = RMSE(predictions, college_test$outstate)
 ```
 
-The test error (RMSE) for the MARS model is `r round(test_rmse, 2)`. 
+The test error (RMSE) for the MARS model is $`r round(test_rmse, 2)`. 
+
+# C - GAM
+
+To start, I will be using the variables selected previously in the MARS model in the GAM model. I will further test for any meaningful interactions between `apps` (Number of applications received) and `f_undergrad` (Number of full-time undergraduates), as well as `room_board` (Room and board costs) and `expend` (Instructional expenditure per student). 
+
+```{r}
+gam_mars_predictors = gam(outstate ~ s(apps) + s(f_undergrad) + s(room_board) + 
+                            s(perc_alumni) + s(expend),
+                          data = college_train)
+
+gam_mars_predictors_interaction = gam(outstate ~ te(apps, f_undergrad) + 
+                                        te(room_board, expend) + s(perc_alumni),
+                                      data = college_train)
+
+anova_test = anova(gam_mars_predictors, gam_mars_predictors_interaction, 
+                   test = "F")
+anova_test
+p_val = anova_test$`Pr(>F)`[2]
+```
+
+p = `r round(p_val, 2)`, which is larger than 0.05. This indicates that adding the complexity with interactions does not improve the fit to the training data. 
+
+```{r}
+plot(gam_mars_predictors, scale = 0)
+
+n_colleges = nrow(college_train)
+
+college_train |> 
+  ggplot(aes(x = apps)) +
+  geom_histogram()
+ 
+n_high_apps = college_train |> filter(apps > 10000) |> count() |> pull(n)
+
+college_train |> 
+  ggplot(aes(x = f_undergrad)) +
+  geom_histogram()
+ 
+n_large_school = college_train |> filter(f_undergrad > 10000) |> count() |> pull(n)
+
+college_train |> 
+  ggplot(aes(x = room_board)) +
+  geom_boxplot()
+
+college_train |> 
+  ggplot(aes(x = expend)) +
+  geom_histogram() 
+
+n_high_expend = college_train |> filter(expend > 17000) |> count() |> pull(n)
+```
+
+Notes on plots:
+
+  * `apps`: Out-of-state tuition increases steadily as the number of applications received increases. This trend is slightly non-linear and there is a lot of variation as the number of applications received increases. This makes sense given that only `r round(100*n_high_apps/n_colleges, 2)`% colleges have more than 10,000 applications received. 
+  * `f_undergrad`: Out-of-state tuition drops significantly as the number of full-time undergraduates increases. This trend is highly non-linear and there is a lot of variation as the number of full-time undergraduates increases. This makes sense given that only `r round(100*n_large_school/n_colleges, 2)`% colleges have more than 10,000 full-time undergraduate students. 
+  * `room_board`: Out-of-state tuition increases as costs for room and board increase, but then tapers out ~$5300, which is near the upper quartile of room and board costs
+  * `perc_alumni`: Tuition appears to have a fairly linear, positive relationship with the percentage of alumni who donate.
+  * `expend`: Out-of-state tuition increases significantly with higher instructional expenditure per student. This trend becomes more non-linear toward the higher expenditures. This makes sense given that only `r round(100*n_high_expend/n_colleges, 2)`% colleges have more than $17,000 instructional expenditure per student. 
+
+```{r}
+gam_preds = predict(gam_mars_predictors, newdata = college_test)
+gam_rmse = RMSE(gam_preds, college_test$outstate)
+```
+
+The RMSE for the selected GAM model is $`r round(gam_rmse, 2)`. 
