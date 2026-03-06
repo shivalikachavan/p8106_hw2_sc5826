@@ -207,3 +207,9 @@ gam_rmse = RMSE(gam_preds, college_test$outstate)
 ```
 
 The RMSE for the selected GAM model is $`r round(gam_rmse, 2)`. 
+
+\newpage
+
+# D - MARS vs. Linear
+
+In this data set, a MARS model makes more sense. The GAM model showed that there are non-linear relationships between OOS tuition and full-time undergraduate students, instructional expenditure, and applications received. The MARS model captures these non-linear relationships. A lot of these predictors are also right skewed, with few observations at the higher end points. In a linear model, these points would have high leverage over the slopes calculated, therefore affecting the final coefficients estimated. Because the MARS model utilizes hinge functions at specific knots, the leverage from outlier points is minimal. Finally, the MARS model penalizes a more complex model, rather than forcing all the predictors into the model. This makes the model more parsimonious. 
