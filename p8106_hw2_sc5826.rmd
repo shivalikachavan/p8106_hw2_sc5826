@@ -210,6 +210,10 @@ The RMSE for the selected GAM model is $`r round(gam_rmse, 2)`.
 
 \newpage
 
-# D - MARS vs. Linear
+# D - MARS vs. Linear - Example
 
 In this data set, a MARS model makes more sense. The GAM model showed that there are non-linear relationships between OOS tuition and full-time undergraduate students, instructional expenditure, and applications received. The MARS model captures these non-linear relationships. A lot of these predictors are also right skewed, with few observations at the higher end points. In a linear model, these points would have high leverage over the slopes calculated, therefore affecting the final coefficients estimated. Because the MARS model utilizes hinge functions at specific knots, the leverage from outlier points is minimal. Finally, the MARS model penalizes a more complex model, rather than forcing all the predictors into the model. This makes the model more parsimonious. 
+
+# E - MARS vs. Linear - Reality
+
+While the MARS model is more flexible and can capture non-linear relationships, a linear model is usually more practical. It is very easy to interpret and communicate the results of a linear model (e.g. "A unit increase in X predictor leads to a $\beta$ increase in Y outcome variable"). It is a bit more complicated to communicate the practical translation of hinge functions and knots. It is also generally easier to avoid overfitting a linear model by employing penalized regression. 
