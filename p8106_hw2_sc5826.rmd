@@ -34,12 +34,12 @@ top10perc_grid = seq(min(college_train$top10perc), max(college_train$top10perc),
 spline_df_fits = 
   tibble(df_val = seq(from = 2, to = 52, by = 5)) |> 
   mutate(
-    spline_model = map(df_val, \(df) smooth.spline(x = college_train$top10perc, 
-                                                   y = college_train$outstate, 
-                                                   df = df)),
-    predictions = map(spline_model, \(model) predict(model, 
-                                                     x = top10perc_grid) |> 
-                        as.data.frame())
+    spline_model = map(df_val, 
+                       \(df) smooth.spline(x = college_train$top10perc, 
+                                           y = college_train$outstate, 
+                                           df = df)),
+    predictions = map(spline_model, 
+                      \(model) predict(model, x = top10perc_grid) |> as.data.frame())
   ) |> 
   unnest(predictions) |> 
   mutate(df_val = as.factor(df_val))
